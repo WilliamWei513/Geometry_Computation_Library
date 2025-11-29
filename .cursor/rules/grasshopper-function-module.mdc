@@ -1,0 +1,121 @@
+---
+alwaysApply: true
+---
+
+## Always English
+- Always use English for coding, REMs, & function explanations
+- No Chinese Contents in any codes & scripts
+- Use Chinese for the chat window to talk with me
+
+## Purpose
+- Define precise rules for building Python alternatives to Grasshopper components.
+- Optimize for correctness, robustness, and DataTree fidelity.
+
+## Technical Rules
+- Reference: `https://developer.rhino3d.com/api/`
+
+- RhinoCommon (version-aware):
+  - Prefer stable APIs; add guarded fallbacks when version differences exist.
+  - Curves: `rg.Curve`, `ToNurbsCurve`, `DuplicateSegments`, `JoinCurves`, `LengthParameter`, `GetLength`.
+  - Surfaces/Breps: `rg.Surface.CreateExtrusion`, `Brep.CreateFromOffsetFace`, `Brep.CreateOffsetBrep`, `Brep.CapPlanarHoles`.
+  - Intersections: `rg.Intersect.Intersection.CurveCurve`, `CurveLine`, `BrepLine`, `CurveSelf`.
+  - Vectors/Planes: `Unitize` when needed; sanitize near-zero to 0.
+  - If an expected API is missing, use an equivalent fallback (e.g., `Surface.CreateExtrusion`).
+
+- Tolerances & Precision:
+  - Default `sc.doc.ModelAbsoluteTolerance` (fallback `0.001`).
+  - Filter split params near domain ends; drop tiny fragments; recheck by midpoint when ambiguous.
+
+- DataTrees & Broadcasting:
+  - Inputs: scalar, single-branch single-value, or full tree.
+  - Broadcasting: scalar/global → all; per-path single → repeat to N.
+  - Always preserve the primary input's tree structure; keep empty branches; `EnsurePath` before `Add`/`AddRange`.
+
+- Coercion & Flexible Inputs:
+  - Guid → geometry; Polyline → `PolylineCurve`; Line → `LineCurve`.
+  - Points/vectors: accept tuple/list or X/Y/Z objects; sanitize vector -0 to 0.
+
+- Classification Patterns:
+  - Use `curve.Contains(point, plane, tol)` for planar regions; treat Coincident as inside when appropriate.
+  - Multi-region union semantics (ANY-hit) when requested; final midpoint recheck.
+
+- Performance & Logging:
+  - Precompute per-path values; collect all split params once, then split.
+  - Print concise path-aware failures; do not raise; avoid noisy logs for expected fallbacks.
+
+## Implementation Checklist
+- Inputs: accept scalars and/or DataTrees per broadcasting rules.
+- Outputs: preserve primary input DataTree structure; `EnsurePath` for all paths.
+- Coercion: convert common Rhino types to required geometry safely.
+- Tolerances: use document tolerance with fallbacks; filter near-end split params.
+- Robustness: discard tiny fragments; add midpoint recheck when classifying.
+- Fallbacks: add guarded alternatives for version-specific or fragile API calls.
+- Logging: concise path/index messages on failure; continue processing.
+
+### No REMs
+- Don't add remarks or annotations in the script.
+- Keep the script as raw as possible.
+- No redundant explanation.
+
+### Naming
+- Do NOT use the `_tree` suffix in function names.
+- Use descriptive, action-based names (e.g., `boundary_surface`, `join_curves`, `explode_curves`, `remove_sharp_corner`).
+
+### DataTree preservation (essential)
+- Outputs MUST preserve the input DataTree structure and path correspondence.
+- Always call `EnsurePath(path)` on every output tree before adding items.
+- Handle empty branches without failing; keep empty paths present in outputs.
+- Outputs mirror the primary input's path structure unless explicitly documented.
+
+Example skeleton:
+```python
+from Grasshopper import DataTree
+from Grasshopper.Kernel.Data import GH_Path
+
+def component_name(input_tree, *args, **kwargs):
+    """
+    Brief description. Replaces Grasshopper's [Component Name].
+    """
+    output = DataTree[object]()  # Use a more specific type when possible
+    
+    for path in input_tree.Paths:
+        output.EnsurePath(path)
+        items = list(input_tree.Branch(path))
+        if not items:
+            continue
+        try:
+            for item in items:
+                result = process_item(item, *args, **kwargs)
+                if result is not None:
+                    output.Add(result, path)
+        except Exception as e:
+            print("Processing failed for path {}: {}".format(path, e))
+            pass
+    return output
+```
+
+### Error handling
+- Wrap per-branch logic in try/except; never stop processing other paths.
+- Print concise, path-aware errors; do not raise.
+
+### Type safety
+- Prefer typed trees: `DataTree[rg.Curve]`, `DataTree[rg.Point3d]`, etc.
+- Check `IsValid` where applicable; guard against `None`.
+
+### Documentation
+- Each function includes a docstring with purpose, the GH component replaced, parameters, and return types.
+- Do NOT add detailed function descriptions to README when creating new functions.
+- Only add function names to the appropriate category list in README.
+
+### Good names (examples)
+- `boundary_surface`, `join_curves`, `explode_curves`, `remove_sharp_corner`, `extract_start_end_points`, `merge_coplanar_faces`, `line_line_intersection_points`, `points_to_closed_polyline`
+
+### Anti-patterns (avoid)
+- Names ending with `_tree`
+- Vague names like `process_geometry`, `handle_data`, `do_stuff`
+
+### Additional guidance
+- Maintain one-to-one path mapping: input `{i}` maps to output `{i}`.
+- Prefer adding to outputs with `Add`/`AddRange` only after ensuring the path exists.
+- Graft/flatten only when the algorithm requires it, and document why.
+ 
