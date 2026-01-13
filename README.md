@@ -1,2 +1,2 @@
 # Geometry_Computation_Library
-Additional scripts patched in the main SF grasshopper script for solving advanced geometric problems
+Geometric algorithms for applied CAD computation in Grasshopper
