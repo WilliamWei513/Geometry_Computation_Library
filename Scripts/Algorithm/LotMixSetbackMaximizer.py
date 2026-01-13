@@ -25,35 +25,63 @@ def coerce_to_curve(obj):
     return None
 
 def data_tree_manager(processed_tree, initial_tree):
-    
-    if processed_tree is None or processed_tree.DataCount == 0:
-        return DataTree[object]()
-
     new_tree = DataTree[object]()
-    
-    initial_paths = initial_tree.Paths
-    flatten_all = (len(initial_paths) == 1)
 
-    if flatten_all:
-        top_path = GH_Path(0)
-        for sp in processed_tree.Paths:
-            branch = processed_tree.Branch(sp)
-            for item in branch:
-                new_tree.Add(item, top_path)
-    else:
-        path_map = {}
-        for sp in initial_paths:
-            top_index = sp.Indices[0]
-            path_map[top_index] = GH_Path(top_index)
+    try:
+        initial_paths = list(initial_tree.Paths)
+    except:
+        initial_paths = []
 
-        for sp in processed_tree.Paths:
-            branch = processed_tree.Branch(sp)
-            if not branch:
+    for ip in initial_paths:
+        try:
+            new_tree.EnsurePath(ip)
+        except:
+            pass
+
+    try:
+        processed_paths = list(processed_tree.Paths) if (processed_tree is not None and processed_tree.DataCount > 0) else []
+    except:
+        processed_paths = []
+
+    if not processed_paths:
+        return new_tree
+
+    try:
+        def path_indices_tuple(p):
+            try:
+                return tuple(p.Indices)
+            except:
+                return tuple()
+
+        initial_prefixes = [(ip, path_indices_tuple(ip)) for ip in initial_paths]
+
+        for pp in processed_paths:
+            try:
+                pp_items = list(processed_tree.Branch(pp))
+            except:
+                pp_items = []
+            if not pp_items:
                 continue
-            top_index = sp.Indices[0]
-            top_path = path_map.get(top_index, GH_Path(top_index))
-            for item in branch:
-                new_tree.Add(item, top_path)
+
+            pp_idx = path_indices_tuple(pp)
+
+            matched_path = None
+            for ip, ip_idx in initial_prefixes:
+                try:
+                    if len(ip_idx) <= len(pp_idx) and tuple(pp_idx[:len(ip_idx)]) == ip_idx:
+                        matched_path = ip
+                        break
+                except:
+                    pass
+
+            if matched_path is not None:
+                for it in pp_items:
+                    try:
+                        new_tree.Add(it, matched_path)
+                    except:
+                        pass
+    except Exception as e:
+        print("data_tree_manager failed: {}".format(e))
 
     return new_tree
 
@@ -70,19 +98,50 @@ def offset_by_distances(segments_tree, distances_tree, side=1, tolerance=None, c
     if segments_tree is None:
         return result_tree
 
-    # Detect global scalar distance (single branch with single value)
+    # Detect global scalar distance (plain number, or tree with a single value)
     global_distance = None
+    # Case 1: direct scalar (no Paths attribute)
     try:
-        if distances_tree is not None and len(list(distances_tree.Paths)) == 1:
-            p0 = list(distances_tree.Paths)[0]
-            vals = list(distances_tree.Branch(p0))
-            if len(vals) == 1:
-                try:
-                    global_distance = float(vals[0])
-                except:
-                    global_distance = None
+        if distances_tree is not None and not hasattr(distances_tree, 'Paths'):
+            global_distance = float(distances_tree)
     except:
-        pass
+        global_distance = None
+    # Case 2: DataTree with exactly one value (possibly under any branch)
+    if global_distance is None:
+        try:
+            total_count = 0
+            the_value = None
+            if distances_tree is not None and hasattr(distances_tree, 'Paths'):
+                for p in distances_tree.Paths:
+                    try:
+                        vals = list(distances_tree.Branch(p))
+                        total_count += len(vals)
+                        if len(vals) > 0 and the_value is None:
+                            the_value = vals[0]
+                        if total_count > 1:
+                            break
+                    except:
+                        pass
+                if total_count == 1 and the_value is not None:
+                    try:
+                        global_distance = float(the_value)
+                    except:
+                        global_distance = None
+        except:
+            pass
+    # Case 3: original single-branch single-value heuristic
+    if global_distance is None:
+        try:
+            if distances_tree is not None and len(list(distances_tree.Paths)) == 1:
+                p0 = list(distances_tree.Paths)[0]
+                vals = list(distances_tree.Branch(p0))
+                if len(vals) == 1:
+                    try:
+                        global_distance = float(vals[0])
+                    except:
+                        global_distance = None
+        except:
+            pass
 
     for path in segments_tree.Paths:
         result_tree.EnsurePath(path)
@@ -148,6 +207,43 @@ def offset_by_distances(segments_tree, distances_tree, side=1, tolerance=None, c
                 pass
 
     return result_tree
+
+def shift_list_tree(tree, shift, wrap=True):
+
+    new_tree = DataTree[object]()
+
+    for path in tree.Paths:
+        items = list(tree.Branch(path))
+        n = len(items)
+        if n == 0:
+            continue
+
+        if wrap:
+            shift_mod = shift % n
+            shifted = items[-shift_mod:] + items[:-shift_mod]
+        else:
+            shifted = [None] * n
+            for i in range(n):
+                j = i - shift
+                if 0 <= j < n:
+                    shifted[i] = items[j]
+
+        new_tree.AddRange(shifted, path)
+
+    return new_tree
+
+def graft_tree(tree):
+
+    new_tree = DataTree[object]()
+
+    for path in tree.Paths:
+        items = list(tree.Branch(path))
+        for i, item in enumerate(items):
+            new_path = GH_Path(path)   
+            new_path = new_path.AppendElement(i)  
+            new_tree.Add(item, new_path)
+
+    return new_tree
 
 def shift_list_tree(tree, shift, wrap=True):
 
