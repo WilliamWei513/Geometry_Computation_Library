@@ -2130,6 +2130,37 @@ def reset_curve_domain_start(curves_tree):
 
 def bin_pack_segments(segment_length_tree, lot_length, lot_width, lot_count, lot_type=None, patterning=None):
 
+    if lot_type is not None:
+        try:
+            n_len = len(lot_length)
+            n_wid = len(lot_width)
+            n_cnt = len(lot_count)
+            n_typ = len(lot_type)
+        except Exception:
+            raise ValueError("Invalid inputs: lot_length, lot_width, lot_count, and lot_type must be list-like and aligned.")
+
+        if not (n_len == n_wid == n_cnt == n_typ):
+            raise ValueError(
+                "Input lists are not aligned: lot_length, lot_width, lot_count, and lot_type must have the same length."
+            )
+
+        type_to_record = {}
+        for i in range(n_typ):
+            t = lot_type[i]
+            try:
+                rec = (float(lot_length[i]), float(lot_width[i]), int(lot_count[i]))
+            except Exception:
+                raise ValueError(
+                    "Invalid inputs: lot_length/lot_width/lot_count must be numeric per lot_type entry."
+                )
+            if t in type_to_record:
+                if type_to_record[t] != rec:
+                    raise ValueError(
+                        "Invalid inputs: each lot_type must map to exactly one (length, width, count) record."
+                    )
+            else:
+                type_to_record[t] = rec
+
     result_positions = DataTree[System.Double]()
     remaining_count_tree = DataTree[System.Int32]()
     used_counts_tree = DataTree[System.Int32]()
