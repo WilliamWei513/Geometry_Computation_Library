@@ -2248,25 +2248,24 @@ def bin_pack_segments(segment_length_tree, lot_length, lot_width, lot_count, lot
                                     break
                             if not any_available:
                                 break
-                        continue
-
-                    w = sorted_wid[chosen_i]
-                    if current_sum + w <= segment_lengths[seg_idx] + 1e-9:
-                        current_sum += w
-                        per_segment_positions[seg_idx].append(current_sum)
-                        per_segment_widths[seg_idx].append(w)
-                        per_segment_lengths[seg_idx].append(sorted_len[chosen_i])
-                        per_segment_types[seg_idx].append(sorted_typ[chosen_i])
-                        used_counts_local[chosen_i] += 1
-                        try:
-                            remaining_local[chosen_i] -= 1
-                            remaining_total -= 1
-                        except:
-                            pass
-                        p_idx += 1
                     else:
-                        seg_idx += 1
-                        current_sum = 0.0
+                        w = sorted_wid[chosen_i]
+                        if current_sum + w <= segment_lengths[seg_idx] + 1e-9:
+                            current_sum += w
+                            per_segment_positions[seg_idx].append(current_sum)
+                            per_segment_widths[seg_idx].append(w)
+                            per_segment_lengths[seg_idx].append(sorted_len[chosen_i])
+                            per_segment_types[seg_idx].append(sorted_typ[chosen_i])
+                            used_counts_local[chosen_i] += 1
+                            try:
+                                remaining_local[chosen_i] -= 1
+                                remaining_total -= 1
+                            except:
+                                pass
+                            p_idx += 1
+                        else:
+                            seg_idx += 1
+                            current_sum = 0.0
 
                 remaining_count_values = [int(v) for v in remaining_local]
             else:
@@ -2358,9 +2357,11 @@ def bin_pack_segments(segment_length_tree, lot_length, lot_width, lot_count, lot
 
     return result_positions, remaining_count_tree, used_counts_tree, sorted_len_tree, sorted_wid_tree, packed_widths_tree, packed_lengths_tree, packed_types_tree, sorted_type_tree
 
-def first_change_or_constant(values_tree):
+def longest_lot_length_in_packed_segments(values_tree):
 
     result_tree = DataTree[System.Double]()
+    if values_tree is None:
+        return result_tree
 
     def to_float(x):
         try:
@@ -2376,35 +2377,25 @@ def first_change_or_constant(values_tree):
 
     paths_sorted = sorted(values_tree.Paths, key=path_key)
 
-    per_path = {}
+    carry = None
     for path in paths_sorted:
         result_tree.EnsurePath(path)
         items = list(values_tree.Branch(path))
-        if not items:
-            per_path[path] = (None, None)
-            continue
-        base = to_float(items[0])
-        change_val = None
-        if base is not None:
-            for i in range(1, len(items)):
-                v = to_float(items[i])
-                if v is None:
-                    continue
-                if abs(v - base) > 1e-9:
-                    change_val = v
-                    break
-        per_path[path] = (base, change_val)
-
-    carry = None
-    for path in paths_sorted:
-        base, change_val = per_path.get(path, (None, None))
-        try:
-            value_to_add = carry if carry is not None else base
-            if value_to_add is not None:
+        max_val = None
+        if items:
+            for it in items:
+                v = to_float(it)
+                if v is not None:
+                    if max_val is None or v > max_val:
+                        max_val = v
+        value_to_add = max_val if max_val is not None else carry
+        if value_to_add is not None:
+            try:
                 result_tree.Add(System.Double(float(value_to_add)), path)
-        except:
-            pass
-        carry = change_val
+            except:
+                pass
+        if max_val is not None:
+            carry = max_val
 
     return result_tree
 
@@ -2498,8 +2489,8 @@ def offset_by_distances_master(input_segments, offset_distances, offset_side=1, 
             # Step 4: Dispatch based on intersection results
             tree_A, tree_B = dispatch_tree(merged, intersection_bool)
             first_line, second_line = extract_first_second_items(tree_B)
-            line1_start, line1_end = extract_start_end_points(first_line)
-            line2_start, line2_end = extract_start_end_points(second_line)
+            line1_start = extract_start_end_points(first_line)[0]
+            line2_end = extract_start_end_points(second_line)[1]
             
             # Step 5: Extend lines and find intersection points
             extended_first_line = extend_lines(first_line, 10000)
@@ -2660,7 +2651,7 @@ def unitmix_setback_maximization(input_segments, offset_distances, offset_side, 
     packed_types = bin_pack_output_tup[7]
     sorted_lot_type = bin_pack_output_tup[8]
 
-    modified_offset_distances = unflatten_tree(flatten_tree(first_change_or_constant(packed_lengths)), input_segments)
+    modified_offset_distances = unflatten_tree(flatten_tree(longest_lot_length_in_packed_segments(packed_lengths)), input_segments)
 
     division_pts = evaluate_curve(grafted, relative_positioning)[0]
 
