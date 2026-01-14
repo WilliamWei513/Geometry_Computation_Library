@@ -2128,7 +2128,7 @@ def reset_curve_domain_start(curves_tree):
                 pass
     return result_tree
 
-def bin_pack_segments(segment_length_tree, lot_length, lot_width, lot_count, lot_type=None):
+def bin_pack_segments(segment_length_tree, lot_length, lot_width, lot_count, lot_type=None, patterning=None):
 
     result_positions = DataTree[System.Double]()
     remaining_count_tree = DataTree[System.Int32]()
@@ -2171,29 +2171,114 @@ def bin_pack_segments(segment_length_tree, lot_length, lot_width, lot_count, lot
             per_segment_lengths = [[] for _ in segment_lengths]
             per_segment_types = [[] for _ in segment_lengths]
             used_counts_local = [0] * len(sorted_wid)
-            finished = [False] * len(sorted_wid)
 
-            seg_idx = 0
-            current_sum = 0.0
+            pattern_list = []
+            try:
+                if patterning is not None and hasattr(patterning, "Paths"):
+                    try:
+                        p_paths = list(patterning.Paths)
+                    except:
+                        p_paths = []
+                    if p_paths:
+                        try:
+                            pattern_list = [x for x in list(patterning.Branch(p_paths[0])) if x is not None]
+                        except:
+                            pattern_list = []
+                elif patterning is not None:
+                    try:
+                        pattern_list = [x for x in list(patterning) if x is not None]
+                    except:
+                        pattern_list = []
+            except:
+                pattern_list = []
 
-            for i in range(len(sorted_wid)):
-                w = sorted_wid[i]
-                c = sorted_cnt[i]
-                for _ in range(c):
-                    if seg_idx >= len(segment_lengths):
-                        break
+            if pattern_list and lot_type is not None:
+                type_to_indices = {}
+                for i, t in enumerate(sorted_typ):
+                    try:
+                        type_to_indices.setdefault(t, []).append(i)
+                    except:
+                        pass
+
+                remaining_local = [int(c) for c in sorted_cnt]
+                remaining_total = 0
+                for v in remaining_local:
+                    try:
+                        remaining_total += int(v)
+                    except:
+                        pass
+
+                seg_idx = 0
+                current_sum = 0.0
+                p_len = len(pattern_list)
+                p_idx = 0
+
+                while seg_idx < len(segment_lengths) and remaining_total > 0 and p_len > 0:
+                    desired = pattern_list[p_idx % p_len]
+                    chosen_i = None
+                    try:
+                        candidate_indices = type_to_indices.get(desired, [])
+                    except:
+                        candidate_indices = []
+                    for cand in candidate_indices:
+                        try:
+                            if remaining_local[cand] > 0:
+                                chosen_i = cand
+                                break
+                        except:
+                            pass
+
+                    if chosen_i is None:
+                        p_idx += 1
+                        if p_idx % p_len == 0:
+                            any_available = False
+                            for t in pattern_list:
+                                try:
+                                    inds = type_to_indices.get(t, [])
+                                except:
+                                    inds = []
+                                for cand in inds:
+                                    try:
+                                        if remaining_local[cand] > 0:
+                                            any_available = True
+                                            break
+                                    except:
+                                        pass
+                                if any_available:
+                                    break
+                            if not any_available:
+                                break
+                        continue
+
+                    w = sorted_wid[chosen_i]
                     if current_sum + w <= segment_lengths[seg_idx] + 1e-9:
                         current_sum += w
                         per_segment_positions[seg_idx].append(current_sum)
                         per_segment_widths[seg_idx].append(w)
-                        per_segment_lengths[seg_idx].append(sorted_len[i])
-                        per_segment_types[seg_idx].append(sorted_typ[i])
-                        used_counts_local[i] += 1
+                        per_segment_lengths[seg_idx].append(sorted_len[chosen_i])
+                        per_segment_types[seg_idx].append(sorted_typ[chosen_i])
+                        used_counts_local[chosen_i] += 1
+                        try:
+                            remaining_local[chosen_i] -= 1
+                            remaining_total -= 1
+                        except:
+                            pass
+                        p_idx += 1
                     else:
                         seg_idx += 1
+                        current_sum = 0.0
+
+                remaining_count_values = [int(v) for v in remaining_local]
+            else:
+                seg_idx = 0
+                current_sum = 0.0
+
+                for i in range(len(sorted_wid)):
+                    w = sorted_wid[i]
+                    c = sorted_cnt[i]
+                    for _ in range(c):
                         if seg_idx >= len(segment_lengths):
                             break
-                        current_sum = 0.0
                         if current_sum + w <= segment_lengths[seg_idx] + 1e-9:
                             current_sum += w
                             per_segment_positions[seg_idx].append(current_sum)
@@ -2201,9 +2286,20 @@ def bin_pack_segments(segment_length_tree, lot_length, lot_width, lot_count, lot
                             per_segment_lengths[seg_idx].append(sorted_len[i])
                             per_segment_types[seg_idx].append(sorted_typ[i])
                             used_counts_local[i] += 1
-                finished[i] = (used_counts_local[i] == sorted_cnt[i])
+                        else:
+                            seg_idx += 1
+                            if seg_idx >= len(segment_lengths):
+                                break
+                            current_sum = 0.0
+                            if current_sum + w <= segment_lengths[seg_idx] + 1e-9:
+                                current_sum += w
+                                per_segment_positions[seg_idx].append(current_sum)
+                                per_segment_widths[seg_idx].append(w)
+                                per_segment_lengths[seg_idx].append(sorted_len[i])
+                                per_segment_types[seg_idx].append(sorted_typ[i])
+                                used_counts_local[i] += 1
 
-            remaining_count_values = [sorted_cnt[i] - used_counts_local[i] for i in range(len(sorted_cnt))]
+                remaining_count_values = [sorted_cnt[i] - used_counts_local[i] for i in range(len(sorted_cnt))]
 
             for i, lst in enumerate(per_segment_positions):
                 new_path = GH_Path(branch)
@@ -2443,7 +2539,7 @@ def offset_by_distances_master(input_segments, offset_distances, offset_side=1, 
     
     return output
 
-def unitmix_setback_maximization(input_segments, offset_distances, offset_side, entrance_rd_outline, lot_length, lot_width, lot_count, lot_type):
+def unitmix_setback_maximization(input_segments, offset_distances, offset_side, entrance_rd_outline, lot_length, lot_width, lot_count, lot_type, patterning=None):
     """
     Encapsulate offset→join→cleanup→trim→orientation→sorting→bin-pack→division workflow.
 
@@ -2456,6 +2552,7 @@ def unitmix_setback_maximization(input_segments, offset_distances, offset_side, 
         lot_width (list[float]|DataTree): Lot widths.
         lot_count (list[int]|DataTree): Lot counts.
         lot_type (list[object]|DataTree|None): Optional lot types.
+        patterning (list[object]|DataTree|None): Optional packing pattern list.
 
     Returns:
         tuple:
@@ -2490,8 +2587,8 @@ def unitmix_setback_maximization(input_segments, offset_distances, offset_side, 
 
     tree_A, tree_B = dispatch_tree(merged, intersection_bool)
     first_line, second_line = extract_first_second_items(tree_B)
-    line1_start, line1_end = extract_start_end_points(first_line)
-    line2_start, line2_end = extract_start_end_points(second_line)
+    line1_start = extract_start_end_points(first_line)[0]
+    line2_end = extract_start_end_points(second_line)[1]
 
     extended_first_line = extend_lines(first_line, 10000)
     extended_second_line = extend_lines(second_line, 10000)
@@ -2550,7 +2647,8 @@ def unitmix_setback_maximization(input_segments, offset_distances, offset_side, 
     endpts = extract_start_end_points(grafted)[1]
 
     segment_tree = flatten_tree(domain_reset_crvlen)
-    bin_pack_output_tup = bin_pack_segments(segment_tree, lot_length, lot_width, lot_count, lot_type)
+
+    bin_pack_output_tup = bin_pack_segments(segment_tree, lot_length, lot_width, lot_count, lot_type, patterning)
 
     relative_positioning = bin_pack_output_tup[0]
     remaining_count = bin_pack_output_tup[1]
@@ -2587,72 +2685,7 @@ def unitmix_setback_maximization(input_segments, offset_distances, offset_side, 
         retract_setback_segments
     )
 
-
-def cull_curve_short_segments(curves, min_segment_length, min_ratio=0.15):
-    """
-    Master function for culling short curves and processing geometry workflow.
-    Replaces the manual workflow of exploding curves, culling short segments,
-    finding intersections, joining lines, and creating closed polylines.
-    
-    Parameters:
-        curves (DataTree[rg.Curve]): Input curves to process.
-        min_segment_length (float): Minimum length threshold for culling.
-        min_ratio (float): Minimum ratio for fin removal (default: 0.15).
-    
-    Returns:
-        DataTree[rg.Curve]: Processed closed polylines with short segments removed.
-    """
-    
-    # Step 1: Explode curves and conform to original tree structure
-    exploded = explode_curves(curves)[0]
-    exploded = data_tree_manager(exploded, curves)
-    
-    # Step 2: Cull short segments
-    long_segments = cull_short_curves(exploded, min_segment_length)
-    
-    # Step 3: Prepare for intersection analysis
-    shifted_list = shift_list_tree(long_segments, -1, True)
-    grafted2 = graft_tree(shifted_list)
-    grafted1 = graft_tree(long_segments)
-    merged = merge_trees(grafted1, grafted2)
-    intersection_bool = curve_curve_intersection_tree(grafted1, grafted2)
-    
-    # Step 4: Process intersections
-    tree_A, tree_B = dispatch_tree(merged, intersection_bool)
-    first_line, second_line = extract_first_second_items(tree_B)
-    line1_start, line1_end = extract_start_end_points(first_line)
-    line2_start, line2_end = extract_start_end_points(second_line)
-    
-    # Step 5: Extend lines and find intersection points
-    extended_first_line = extend_lines(first_line, 10000)
-    extended_second_line = extend_lines(second_line, 10000)
-    intersection_pts = line_line_intersection_points(extended_first_line, extended_second_line)
-    
-    # Step 6: Join lines at intersection points
-    joined_line1 = two_pt_line(line1_start, intersection_pts)
-    joined_line2 = two_pt_line(intersection_pts, line2_end)
-    joined_offset = merge_trees(joined_line1, joined_line2, tree_A)
-    
-    # Step 7: Process all intersections and create closed polylines
-    first_line_all, second_line_all = extract_first_second_items(joined_offset)
-    intersection_pts_all = line_line_intersection_points(first_line_all, second_line_all)
-    
-    # Step 8: Conform intersection points and create closed polylines
-    comform_isct_pts_all = data_tree_manager(intersection_pts_all, curves)
-    closed_polylines = points_to_closed_polyline(comform_isct_pts_all)
-    
-    # Step 9: Remove small fins and clean up
-    fin_removed = remove_small_fins(closed_polylines, tol=sc.doc.ModelAbsoluteTolerance, min_ratio=min_ratio)
-    fin_removed = clean_tree(fin_removed, True, True, True)
-    
-    # Step 10: Final processing - explode vertices and create final polylines
-    exploded_vertices = explode_curves(fin_removed)[1]
-    major_curves = points_to_closed_polyline(exploded_vertices)
-    
-    return major_curves
-
-
-def convergence_iteration(input_segments, offset_distances, offset_side, entrance_rd_outline, lot_length, lot_width, lot_count, lot_type, max_iterations, tolerance=1e-6):
+def convergence_iteration(input_segments, offset_distances, offset_side, entrance_rd_outline, lot_length, lot_width, lot_count, lot_type, max_iterations, patterning=None, tolerance=1e-6):
     """
     Perform iterative convergence on offset distances until stable results are achieved.
     From 2nd iteration onwards, uses retract_setback_segments as input_segments 
@@ -2668,6 +2701,7 @@ def convergence_iteration(input_segments, offset_distances, offset_side, entranc
         lot_count (list[int]|DataTree): Lot counts.
         lot_type (list[object]|DataTree|None): Optional lot types.
         max_iterations (int): Maximum number of iterations to prevent infinite loops.
+        patterning (list[object]|DataTree|None): Optional packing pattern list.
         tolerance (float): Tolerance for convergence comparison.
 
     Returns:
@@ -2746,7 +2780,8 @@ def convergence_iteration(input_segments, offset_distances, offset_side, entranc
                 lot_length,
                 lot_width,
                 lot_count,
-                lot_type
+                lot_type,
+                patterning
             )
 
             # Extract modified_offset_distances and retract_setback_segments
@@ -2775,7 +2810,8 @@ def convergence_iteration(input_segments, offset_distances, offset_side, entranc
                     lot_length,
                     lot_width,
                     lot_count,
-                    lot_type
+                    lot_type,
+                    patterning
                 )
                 return final_results[:-1] + (iteration_count,)
             else:
@@ -2797,14 +2833,15 @@ def convergence_iteration(input_segments, offset_distances, offset_side, entranc
             lot_length,
             lot_width,
             lot_count,
-            lot_type
+            lot_type,
+            patterning
         )
         return final_results[:-1] + (iteration_count,)
 
     # Fallback: return None for all outputs
     return (None,) * 14 + (iteration_count,)
 
-results = convergence_iteration(input_segments, offset_distances, offset_side, entrance_rd_outline, lot_length, lot_width, lot_count, lot_type, max_iterations, tolerance=1e-6)
+results = convergence_iteration(input_segments, offset_distances, offset_side, entrance_rd_outline, lot_length, lot_width, lot_count, lot_type, max_iterations, patterning, tolerance=1e-6)
 
 setbackB = results[0]
 startpts = results[1]
