@@ -1,21 +1,128 @@
 import os
 import re
 import shutil
+import ast
 from datetime import datetime
 
-def cleanup_script(input_file, func_ranges, main_code_range, import_lines=9, create_backup=True):
-    """
-    Clean up a Python script by keeping only specified functions and main code.
+def detect_imports_end(lines):
+    """Detect where import section ends (including comments and blank lines between imports)."""
+    last_import_line = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith(('import ', 'from ')) or stripped.startswith('#') or not stripped:
+            if stripped.startswith(('import ', 'from ')):
+                last_import_line = i + 1
+        elif stripped and not stripped.startswith('#'):
+            break
+    return last_import_line
+
+def detect_all_functions(lines):
+    """Detect all function definitions with their line ranges."""
+    functions = {}
+    current_func = None
+    current_start = None
+    current_indent = None
     
-    Parameters:
-        input_file: Path to the Python file to clean
-        func_ranges: Dict mapping function names to (start, end) tuples (1-indexed)
-        main_code_range: Tuple (start, end) for main code to keep (1-indexed)
-        import_lines: Number of lines to keep from the beginning (default 9)
-        create_backup: Whether to create a backup file (default True)
+    for i, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        
+        indent = len(line) - len(line.lstrip())
+        match = re.match(r'^def\s+(\w+)\s*\(', line.strip())
+        
+        if match and indent == 0:
+            if current_func:
+                functions[current_func] = (current_start, i - 1)
+            current_func = match.group(1)
+            current_start = i
+            current_indent = 0
+        elif current_func and indent == 0 and line.strip() and not line.strip().startswith('#'):
+            if not re.match(r'^def\s+\w+\s*\(', line.strip()):
+                functions[current_func] = (current_start, i - 1)
+                current_func = None
+    
+    if current_func:
+        for i in range(len(lines), current_start - 1, -1):
+            if lines[i-1].strip() and not lines[i-1].strip().startswith('#'):
+                functions[current_func] = (current_start, i)
+                break
+    
+    return functions
+
+def detect_main_code_range(lines, import_end, all_functions):
+    """Detect main code range (top-level code after all functions)."""
+    total = len(lines)
+    main_start = None
+    
+    for i, line in enumerate(lines, 1):
+        if re.match(r"if\s+__name__\s*==\s*['\"]__main__['\"]\s*:", line.strip()):
+            main_start = i
+            break
+    
+    if main_start is None:
+        func_end = import_end
+        if all_functions:
+            func_end = max(end for _, end in all_functions.values())
+        
+        for i in range(func_end, total):
+            line = lines[i]
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            
+            is_top_level = len(line) - len(line.lstrip()) == 0
+            if is_top_level and not re.match(r'^(def|class)\s+\w+', stripped):
+                main_start = i + 1
+                break
+    
+    if main_start is None:
+        return None
+    
+    main_end = total
+    while main_end > main_start:
+        stripped = lines[main_end - 1].strip()
+        if stripped and not stripped.startswith('#'):
+            break
+        main_end -= 1
+    
+    return (main_start, main_end) if main_start <= main_end else None
+
+def find_used_functions(lines, main_range, all_functions):
+    """Find all functions used in main code and their dependencies recursively."""
+    main_start, main_end = main_range
+    main_code = ''.join(lines[main_start-1:main_end])
+    
+    used = set()
+    to_check = set()
+    
+    for func_name in all_functions.keys():
+        if re.search(r'\b' + re.escape(func_name) + r'\s*\(', main_code):
+            to_check.add(func_name)
+    
+    while to_check:
+        func_name = to_check.pop()
+        if func_name in used:
+            continue
+        used.add(func_name)
+        
+        if func_name in all_functions:
+            start, end = all_functions[func_name]
+            func_code = ''.join(lines[start-1:end])
+            
+            for other_func in all_functions.keys():
+                if other_func != func_name and other_func not in used:
+                    if re.search(r'\b' + re.escape(other_func) + r'\s*\(', func_code):
+                        to_check.add(other_func)
+    
+    return used
+
+def cleanup_script(input_file, create_backup=True):
+    """
+    Clean up a Python script by keeping only imports, used functions, and main code.
+    Automatically detects everything.
     """
     if not os.path.isfile(input_file):
-        print(f"Error: File '{input_file}' not found or is not a file.")
+        print(f"Error: File '{input_file}' not found.")
         return False
     
     try:
@@ -37,20 +144,42 @@ def cleanup_script(input_file, func_ranges, main_code_range, import_lines=9, cre
         print("Error: File is empty.")
         return False
     
-    import_lines = min(max(0, import_lines), total)
-    main_start, main_end = main_code_range
+    print(f"File: {input_file} ({total} lines)")
     
-    errors = []
-    for name, (s, e) in func_ranges.items():
-        if s < 1 or e > total or s > e:
-            errors.append(f"Function '{name}': invalid range ({s}, {e})")
-    if main_start < 1 or main_end > total or main_start > main_end:
-        errors.append(f"Main code: invalid range ({main_start}, {main_end})")
+    import_end = detect_imports_end(lines)
+    print(f"Imports: lines 1-{import_end}")
     
-    if errors:
-        print("\nErrors:")
-        for err in errors:
-            print(f"  - {err}")
+    all_functions = detect_all_functions(lines)
+    print(f"Functions found: {len(all_functions)}")
+    for name, (s, e) in sorted(all_functions.items(), key=lambda x: x[1][0]):
+        print(f"  - {name}: lines {s}-{e}")
+    
+    main_range = detect_main_code_range(lines, import_end, all_functions)
+    if not main_range:
+        print("Error: Could not detect main code.")
+        return False
+    print(f"Main code: lines {main_range[0]}-{main_range[1]}")
+    
+    used_functions = find_used_functions(lines, main_range, all_functions)
+    unused_functions = set(all_functions.keys()) - used_functions
+    
+    print(f"\nUsed functions: {len(used_functions)}")
+    for name in sorted(used_functions):
+        s, e = all_functions[name]
+        print(f"  - {name}: lines {s}-{e}")
+    
+    if unused_functions:
+        print(f"\nUnused functions (will be removed): {len(unused_functions)}")
+        for name in sorted(unused_functions):
+            s, e = all_functions[name]
+            print(f"  - {name}: lines {s}-{e}")
+    
+    if not used_functions and not main_range:
+        print("Nothing to keep. Aborting.")
+        return False
+    
+    if input("\nProceed? (y/n): ").lower() != 'y':
+        print("Cancelled.")
         return False
     
     if create_backup:
@@ -63,10 +192,15 @@ def cleanup_script(input_file, func_ranges, main_code_range, import_lines=9, cre
             if input("Continue without backup? (y/n): ").lower() != 'y':
                 return False
     
-    result = lines[:import_lines]
-    for _, (s, e) in sorted(func_ranges.items(), key=lambda x: x[1][0]):
+    result = lines[:import_end]
+    
+    for name in sorted(used_functions, key=lambda n: all_functions[n][0]):
+        s, e = all_functions[name]
         result.extend(lines[s-1:e])
-    result.extend(lines[main_start-1:main_end])
+        if not result[-1].endswith('\n'):
+            result.append('\n')
+    
+    result.extend(lines[main_range[0]-1:main_range[1]])
     
     try:
         with open(input_file, 'w', encoding='utf-8') as f:
@@ -75,202 +209,25 @@ def cleanup_script(input_file, func_ranges, main_code_range, import_lines=9, cre
         print(f"Error writing file: {e}")
         return False
 
-    print(f"Done: {len(result)} lines (was {total})")
-    if func_ranges:
-        print(f"Kept: {', '.join(sorted(func_ranges.keys()))}")
+    print(f"\nDone: {len(result)} lines (was {total})")
     return True
-
-def get_input(prompt, default=None):
-    """Get user input with optional default."""
-    suffix = f" [{default}]: " if default is not None else ": "
-    val = input(prompt + suffix).strip()
-    return default if not val and default is not None else val
-
-def get_int(prompt, default=None):
-    """Get integer input."""
-    val = get_input(prompt, default)
-    try:
-        return int(val) if val else default
-    except ValueError:
-        print("Invalid number.")
-        return default
-
-def get_range(prompt, max_line=None):
-    """Get a line range (start, end) from user."""
-    while True:
-        val = get_input(prompt)
-        if not val:
-            return None
-        if ',' not in val:
-            print("Format: start,end (e.g., 10,20)")
-            continue
-        try:
-            parts = val.split(',')
-            s, e = int(parts[0].strip()), int(parts[1].strip())
-            if s < 1 or e < 1 or s > e:
-                print("Invalid range: start must be >= 1 and <= end")
-                continue
-            if max_line and e > max_line:
-                print(f"End ({e}) exceeds file length ({max_line})")
-                continue
-            return (s, e)
-        except (ValueError, IndexError):
-            print("Format: start,end (e.g., 10,20)")
-
-def detect_main_code(input_file, func_ranges, import_lines):
-    """Auto-detect main code range by finding top-level code (0 indentation)."""
-    try:
-        with open(input_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-    except:
-        return None
-    
-    if not lines:
-        return None
-    
-    total = len(lines)
-    main_start = None
-    
-    for i, line in enumerate(lines, 1):
-        if re.match(r"if\s+__name__\s*==\s*['\"]__main__['\"]\s*:", line.strip()):
-            main_start = i + 1
-            break
-    
-    if main_start is None:
-        last_def_end = import_lines
-        in_def = False
-        
-        for i, line in enumerate(lines, 1):
-            stripped = line.strip()
-            if not stripped or stripped.startswith('#'):
-                continue
-            
-            is_top_level = len(line) - len(line.lstrip()) == 0
-            
-            if is_top_level:
-                if re.match(r'^(def|class)\s+\w+', stripped):
-                    in_def = True
-                    last_def_end = i
-                elif in_def:
-                    last_def_end = i - 1
-                    in_def = False
-        
-        for i in range(last_def_end, total):
-            line = lines[i]
-            stripped = line.strip()
-            
-            if not stripped or stripped.startswith('#'):
-                continue
-            
-            is_top_level = len(line) - len(line.lstrip()) == 0
-            
-            if is_top_level and not re.match(r'^(def|class)\s+\w+', stripped):
-                main_start = i + 1
-                break
-    
-    if main_start is None:
-        return None
-    
-    main_end = total
-    while main_end > main_start:
-        stripped = lines[main_end - 1].strip()
-        if stripped and not stripped.startswith('#'):
-            break
-        main_end -= 1
-    
-    return (main_start, main_end) if main_start <= main_end else None
 
 def interactive_cleanup():
     """Interactive CLI for cleanup script."""
     print("=" * 50)
-    print("Python Script Cleanup Tool")
+    print("Python Script Auto Cleanup Tool")
     print("=" * 50)
     
     input_file = None
     while not input_file:
-        path = get_input("\nFile path")
+        path = input("\nFile path: ").strip()
         if path and os.path.isfile(path):
             input_file = path
         else:
             print("File not found.")
     
-    try:
-        with open(input_file, 'r', encoding='utf-8') as f:
-            total_lines = len(f.readlines())
-        print(f"File has {total_lines} lines.")
-    except:
-        total_lines = None
-    
-    import_lines = get_int("Import lines to keep", 9)
-    if import_lines is None or import_lines < 0:
-        import_lines = 9
-    
-    auto_detect = get_input("\nAuto-detect main code range? (y/n)", "y")
-    main_range = None
-    
-    if auto_detect.lower() == 'y':
-        print("Detecting main code...")
-        main_range = detect_main_code(input_file, {}, import_lines)
-        if main_range:
-            print(f"Detected: lines {main_range[0]}-{main_range[1]}")
-            if get_input("Use this range? (y/n)", "y").lower() != 'y':
-                main_range = None
-        else:
-            print("Could not auto-detect.")
-    
-    print("\nEnter functions (name,start,end). Empty to finish.")
-    func_ranges = {}
-    while True:
-        val = get_input("Function")
-        if not val:
-            break
-        parts = val.split(',')
-        if len(parts) != 3:
-            print("Format: name,start,end")
-            continue
-        try:
-            name = parts[0].strip()
-            s, e = int(parts[1].strip()), int(parts[2].strip())
-            if not name or s < 1 or e < s:
-                print("Invalid input.")
-                continue
-            if total_lines and e > total_lines:
-                print(f"End ({e}) exceeds file length.")
-                continue
-            func_ranges[name] = (s, e)
-            print(f"  Added: {name} ({s}-{e})")
-        except ValueError:
-            print("Format: name,start,end")
-    
-    if not main_range:
-        if auto_detect.lower() == 'y' and func_ranges:
-            print("\nRe-detecting main code with function info...")
-            main_range = detect_main_code(input_file, func_ranges, import_lines)
-            if main_range:
-                print(f"Detected: lines {main_range[0]}-{main_range[1]}")
-                if get_input("Use this range? (y/n)", "y").lower() != 'y':
-                    main_range = None
-        
-        if not main_range:
-            print("\nEnter main code range manually.")
-            while not main_range:
-                main_range = get_range("Main code (start,end)", total_lines)
-    
-    print(f"\nSummary:")
-    print(f"  File: {input_file}")
-    print(f"  Import lines: {import_lines}")
-    print(f"  Functions: {len(func_ranges)}")
-    for name, (s, e) in func_ranges.items():
-        print(f"    - {name}: {s}-{e}")
-    print(f"  Main code: {main_range[0]}-{main_range[1]}")
-    
-    if get_input("\nProceed? (y/n)", "n").lower() == 'y':
-        if cleanup_script(input_file, func_ranges, main_range, import_lines):
-            print("\nDone!")
-            return True
-    else:
-        print("\nCancelled.")
-    return False
+    print()
+    return cleanup_script(input_file)
 
 if __name__ == '__main__':
     interactive_cleanup()
