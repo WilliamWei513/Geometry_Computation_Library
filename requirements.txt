@@ -1,0 +1,8 @@
+# Testing dependencies
+pytest>=7.0.0
+
+# Optional: Code coverage (uncomment if needed)
+# pytest-cov>=4.0.0
+
+# Optional: Parallel test execution (uncomment if needed)
+# pytest-xdist>=3.0.0
