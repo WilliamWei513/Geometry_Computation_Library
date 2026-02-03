@@ -173,19 +173,25 @@ origin_lonlat_tree = DataTree[System.Double]()
 
 if optional_origin_lonlat is not None:
     try:
-        for path in optional_origin_lonlat.Paths:
-            branch = list(optional_origin_lonlat.Branch(path))
+        paths = list(optional_origin_lonlat.Paths)
+        if paths:
+            branch = list(optional_origin_lonlat.Branch(paths[0]))
             if len(branch) >= 2:
-                try:
-                    origin_lon_tree.EnsurePath(path)
-                    origin_lat_tree.EnsurePath(path)
-                    origin_lonlat_tree.EnsurePath(path)
-                    origin_lon_tree.Add(System.Double(float(branch[0])), path)
-                    origin_lat_tree.Add(System.Double(float(branch[1])), path)
-                    origin_lonlat_tree.Add(System.Double(float(branch[0])), path)
-                    origin_lonlat_tree.Add(System.Double(float(branch[1])), path)
-                except:
-                    pass
+                val0 = branch[0]
+                val1 = branch[1]
+                origin_lon_val = float(val0) if not isinstance(val0, System.Double) else float(val0.Value)
+                origin_lat_val = float(val1) if not isinstance(val1, System.Double) else float(val1.Value)
+                for path in lon_tree.Paths:
+                    try:
+                        origin_lon_tree.EnsurePath(path)
+                        origin_lat_tree.EnsurePath(path)
+                        origin_lonlat_tree.EnsurePath(path)
+                        origin_lon_tree.Add(System.Double(origin_lon_val), path)
+                        origin_lat_tree.Add(System.Double(origin_lat_val), path)
+                        origin_lonlat_tree.Add(System.Double(origin_lon_val), path)
+                        origin_lonlat_tree.Add(System.Double(origin_lat_val), path)
+                    except:
+                        pass
     except:
         pass
 else:
