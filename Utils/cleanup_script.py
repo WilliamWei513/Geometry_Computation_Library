@@ -118,7 +118,7 @@ def get_range(prompt, max_line=None):
             print("Format: start,end (e.g., 10,20)")
 
 def detect_main_code(input_file, func_ranges, import_lines):
-    """Auto-detect main code range."""
+    """Auto-detect main code range by finding top-level code (0 indentation)."""
     try:
         with open(input_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
@@ -137,13 +137,36 @@ def detect_main_code(input_file, func_ranges, import_lines):
             break
     
     if main_start is None:
-        start_from = max(end for _, end in func_ranges.values()) if func_ranges else import_lines
-        for i in range(start_from, total):
-            stripped = lines[i].strip()
-            if stripped and not stripped.startswith('#'):
-                if not re.match(r'^(def|class)\s+\w+', stripped):
-                    main_start = i + 1
-                    break
+        last_def_end = import_lines
+        in_def = False
+        
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            
+            is_top_level = len(line) - len(line.lstrip()) == 0
+            
+            if is_top_level:
+                if re.match(r'^(def|class)\s+\w+', stripped):
+                    in_def = True
+                    last_def_end = i
+                elif in_def:
+                    last_def_end = i - 1
+                    in_def = False
+        
+        for i in range(last_def_end, total):
+            line = lines[i]
+            stripped = line.strip()
+            
+            if not stripped or stripped.startswith('#'):
+                continue
+            
+            is_top_level = len(line) - len(line.lstrip()) == 0
+            
+            if is_top_level and not re.match(r'^(def|class)\s+\w+', stripped):
+                main_start = i + 1
+                break
     
     if main_start is None:
         return None
@@ -182,6 +205,19 @@ def interactive_cleanup():
     if import_lines is None or import_lines < 0:
         import_lines = 9
     
+    auto_detect = get_input("\nAuto-detect main code range? (y/n)", "y")
+    main_range = None
+    
+    if auto_detect.lower() == 'y':
+        print("Detecting main code...")
+        main_range = detect_main_code(input_file, {}, import_lines)
+        if main_range:
+            print(f"Detected: lines {main_range[0]}-{main_range[1]}")
+            if get_input("Use this range? (y/n)", "y").lower() != 'y':
+                main_range = None
+        else:
+            print("Could not auto-detect.")
+    
     print("\nEnter functions (name,start,end). Empty to finish.")
     func_ranges = {}
     while True:
@@ -206,24 +242,17 @@ def interactive_cleanup():
         except ValueError:
             print("Format: name,start,end")
     
-    manual = get_input("\nManually specify main code range? (y/n)", "n")
-    
-    if manual.lower() == 'y':
-        main_range = None
-        while not main_range:
-            main_range = get_range("Main code (start,end)", total_lines)
-    else:
-        print("Detecting main code...")
-        main_range = detect_main_code(input_file, func_ranges, import_lines)
-        if main_range:
-            print(f"Detected: lines {main_range[0]}-{main_range[1]}")
-            if get_input("Use this range? (y/n)", "y").lower() != 'y':
-                main_range = None
-                while not main_range:
-                    main_range = get_range("Main code (start,end)", total_lines)
-        else:
-            print("Could not detect. Please enter manually.")
-            main_range = None
+    if not main_range:
+        if auto_detect.lower() == 'y' and func_ranges:
+            print("\nRe-detecting main code with function info...")
+            main_range = detect_main_code(input_file, func_ranges, import_lines)
+            if main_range:
+                print(f"Detected: lines {main_range[0]}-{main_range[1]}")
+                if get_input("Use this range? (y/n)", "y").lower() != 'y':
+                    main_range = None
+        
+        if not main_range:
+            print("\nEnter main code range manually.")
             while not main_range:
                 main_range = get_range("Main code (start,end)", total_lines)
     
