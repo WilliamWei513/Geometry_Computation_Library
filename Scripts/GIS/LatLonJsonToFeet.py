@@ -168,7 +168,8 @@ def calc_mapbox_side_length(center_lat, zoom=16, image_px=1280):
 
 def parse_multipolygon_json(multipolygon_json_string):
     """
-    Parse GeoJSON MultiPolygon coordinate string and extract first ring lat/lon for each polygon.
+    Parse GeoJSON MultiPolygon or Polygon coordinate string and extract first ring lat/lon for each polygon.
+    Supports both MultiPolygon format [[[ring1], [ring2]], [[ring3]]] and Polygon format [[ring1], [ring2]].
     
     Returns:
         lat_tree: DataTree[System.Double] - Latitudes, one branch per polygon
@@ -181,15 +182,24 @@ def parse_multipolygon_json(multipolygon_json_string):
         return lat_tree, lon_tree
     
     try:
-        if isinstance(multipolygon_json_string, str):
-            parsed = json.loads(multipolygon_json_string)
-        else:
-            parsed = multipolygon_json_string
+        parsed = json.loads(multipolygon_json_string) if isinstance(multipolygon_json_string, str) else multipolygon_json_string
         
-        if not isinstance(parsed, list):
+        if not isinstance(parsed, list) or len(parsed) == 0:
             return lat_tree, lon_tree
         
-        for poly_idx, polygon in enumerate(parsed):
+        is_multipolygon = False
+        if len(parsed) > 0:
+            first_elem = parsed[0]
+            if isinstance(first_elem, list) and len(first_elem) > 0:
+                first_ring = first_elem[0]
+                if isinstance(first_ring, list) and len(first_ring) > 0:
+                    first_coord = first_ring[0]
+                    if isinstance(first_coord, list) and len(first_coord) >= 2:
+                        is_multipolygon = True
+        
+        polygons_iter = parsed if is_multipolygon else [parsed]
+        
+        for poly_idx, polygon in enumerate(polygons_iter):
             if isinstance(polygon, list) and len(polygon) > 0:
                 first_ring = polygon[0]
                 if isinstance(first_ring, list) and len(first_ring) > 0:
@@ -206,7 +216,7 @@ def parse_multipolygon_json(multipolygon_json_string):
                             except:
                                 pass
     except Exception as e:
-        print("Failed to parse MultiPolygon JSON: {}".format(e))
+        print("Failed to parse Polygon/MultiPolygon JSON: {}".format(e))
         pass
     
     return lat_tree, lon_tree
