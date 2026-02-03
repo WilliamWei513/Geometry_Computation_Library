@@ -139,6 +139,7 @@ sideLength = calc_mapbox_side_length(origin_lat, zoom=zoom, image_px=imageSize)/
 if optional_origin_lonlat is not None:
     origin_lon = optional_origin_lonlat[0]
     origin_lat = optional_origin_lonlat[1]
+    origin_lonlat = [origin_lon, origin_lat]
 
 parcelPoints, parcelX, parcelY = convert_geo_to_local_points(lon_list, lat_list, origin_lon, origin_lat)
 

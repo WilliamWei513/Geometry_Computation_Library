@@ -7243,10 +7243,10 @@ is_larger = larger_than(subtraction(length_longest_side, last_modified_branch_rd
 indices_to_cull = dispatch_tree(-1, is_larger)[1]
 modified_branch_rd_cline_coordinates = cull_index(modified_branch_rd_cline_coordinates, indices_to_cull) # once more remove redundant road at the end
 
-last_modified_branch_rd_cline_coordinates = list_item(modified_branch_rd_cline_coordinates, -1)
-is_larger = larger_than(subtraction(length_longest_side, last_modified_branch_rd_cline_coordinates), minimal_module_width)
-indices_to_cull = dispatch_tree(-1, is_larger)[1]
-modified_branch_rd_cline_coordinates = cull_index(modified_branch_rd_cline_coordinates, indices_to_cull) # once more remove redundant road at the end
+# last_modified_branch_rd_cline_coordinates = list_item(modified_branch_rd_cline_coordinates, -1)
+# is_larger = larger_than(subtraction(length_longest_side, last_modified_branch_rd_cline_coordinates), minimal_module_width)
+# indices_to_cull = dispatch_tree(-1, is_larger)[1]
+# modified_branch_rd_cline_coordinates = cull_index(modified_branch_rd_cline_coordinates, indices_to_cull) # once more remove redundant road at the end
 
 ### inputs from initial iteration: modified_branch_rd_cline_coordinates, both_point_of_excess
 
@@ -7263,19 +7263,19 @@ cline = two_pt_line(moved_pts2, moved_pts1)
 
 all_branch_rd_cline = trim_with_region(cline, right_of_way_cline)[0]
 
-## snap branch rd cline to closest main rd vertices
-vertices = explode_curves(simplify_tree(right_of_way_cline))[1]
-grafted_all_branch_rd_cline = simplify_tree(graft_tree(all_branch_rd_cline))
-vts_to_snap = find_adjacent_point(vertices, grafted_all_branch_rd_cline)
-vts_to_snap_proj = curve_closest_point(vts_to_snap, grafted_all_branch_rd_cline)[0]
-snap_vector = vector_2pt(vts_to_snap_proj, vts_to_snap)[0]
-snapped_branch_rd_cline = move_geometry(grafted_all_branch_rd_cline, snap_vector)[0]
-boolean3 = to_boolean(list_length(snapped_branch_rd_cline))
-snapped_all_branch_rd_cline = pick_n_choose(grafted_all_branch_rd_cline, snapped_branch_rd_cline, boolean3)
+# ## snap branch rd cline to closest main rd vertices
+# vertices = explode_curves(simplify_tree(right_of_way_cline))[1]
+# grafted_all_branch_rd_cline = simplify_tree(graft_tree(all_branch_rd_cline))
+# vts_to_snap = find_adjacent_point(vertices, grafted_all_branch_rd_cline, longest_lot_length) 
+# vts_to_snap_proj = curve_closest_point(vts_to_snap, grafted_all_branch_rd_cline)[0]
+# snap_vector = vector_2pt(vts_to_snap_proj, vts_to_snap)[0]
+# snapped_branch_rd_cline = move_geometry(grafted_all_branch_rd_cline, snap_vector)[0]
+# boolean3 = to_boolean(list_length(snapped_branch_rd_cline))
+# snapped_all_branch_rd_cline = pick_n_choose(grafted_all_branch_rd_cline, snapped_branch_rd_cline, boolean3)
 
 ## get initial branch rd outlines
-offset1 = offset_by_distances(snapped_all_branch_rd_cline, right_of_way_width / 2, 1)
-offset2 = offset_by_distances(snapped_all_branch_rd_cline, right_of_way_width / 2, -1)
+offset1 = offset_by_distances(all_branch_rd_cline, right_of_way_width / 2, 1)
+offset2 = offset_by_distances(all_branch_rd_cline, right_of_way_width / 2, -1)
 cap1 = two_pt_line(extract_start_end_points(offset1)[0], extract_start_end_points(offset2)[0])
 cap2 = two_pt_line(extract_start_end_points(offset1)[1], extract_start_end_points(offset2)[1])
 merge = merge_trees(graft_tree(offset1), graft_tree(offset2), graft_tree(cap1), graft_tree(cap2))
