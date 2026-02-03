@@ -213,40 +213,9 @@ def parse_multipolygon_json(multipolygon_json_string):
 
 # --------------------
 # Grasshopper Inputs:
-#   lonList (list of float or str) — parcel boundary longitudes
-#   latList (list of float or str) — parcel boundary latitudes
-#   zoom (int, optional) — Mapbox zoom level, default 16
-#   imageSize (int, optional) — Mapbox static image size (width = height), default 1280
+#   multipolygon_json_string (str) — GeoJSON MultiPolygon string
+#   optional_origin_lonlat (list of float, optional) — Origin [lon, lat] pair, default None
 # --------------------
-
-
-[
-    [
-        [
-            [0, 0],
-            [10, 0],
-            [10, 10],
-            [0, 10],
-            [0, 0]
-        ],
-        [
-            [3, 3],
-            [7, 3],
-            [7, 7],
-            [3, 7],
-            [3, 3]
-        ]
-    ],
-    [
-        [
-            [20, 20],
-            [30, 20],
-            [30, 30],
-            [20, 30],
-            [20, 20]
-        ]
-    ]
-]
 
 multipolygon_json_string = multipolygon_json_string if "multipolygon_json_string" in locals() else None
 
@@ -255,22 +224,6 @@ if multipolygon_json_string is not None:
 else:
     lat_tree = DataTree[System.Double]()
     lon_tree = DataTree[System.Double]()
-    lonList = lonList if "lonList" in locals() else []
-    latList = latList if "latList" in locals() else []
-    if lonList and latList and len(lonList) == len(latList):
-        path = GH_Path(0)
-        lat_tree.EnsurePath(path)
-        lon_tree.EnsurePath(path)
-        for lon_val in lonList:
-            try:
-                lon_tree.Add(System.Double(float(lon_val)), path)
-            except:
-                pass
-        for lat_val in latList:
-            try:
-                lat_tree.Add(System.Double(float(lat_val)), path)
-            except:
-                pass
 
 origin_lon_tree = DataTree[System.Double]()
 origin_lat_tree = DataTree[System.Double]()
