@@ -48,7 +48,6 @@ def convert_geo_to_local_points(lon_tree, lat_tree, origin_lon_tree, origin_lat_
         all_paths.add(p)
     for p in lat_paths:
         all_paths.add(p)
-    
     for path in all_paths:
         try:
             lon_branch = list(lon_tree.Branch(path)) if path in lon_tree.Paths else []
@@ -97,7 +96,6 @@ def convert_geo_to_local_points(lon_tree, lat_tree, origin_lon_tree, origin_lat_
                             pass
         except:
             pass
-    
     return points_tree, x_coords_tree, y_coords_tree
 
 def parse_multipolygon_json(multipolygon_json_string):
@@ -116,7 +114,10 @@ def parse_multipolygon_json(multipolygon_json_string):
         return lat_tree, lon_tree
     
     try:
-        parsed = json.loads(multipolygon_json_string) if isinstance(multipolygon_json_string, str) else multipolygon_json_string
+        raw = multipolygon_json_string
+        if isinstance(raw, list) and len(raw) > 0:
+            raw = raw[0]
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
         
         if not isinstance(parsed, list) or len(parsed) == 0:
             return lat_tree, lon_tree
@@ -152,7 +153,6 @@ def parse_multipolygon_json(multipolygon_json_string):
     except Exception as e:
         print("Failed to parse Polygon/MultiPolygon JSON: {}".format(e))
         pass
-    
     return lat_tree, lon_tree
 
 # --------------------
@@ -215,7 +215,6 @@ else:
         except:
             pass
 
-
 ### Grasshopper Outputs
 origin_lonlat = origin_lonlat_tree
-parcelPoints = convert_geo_to_local_points(lon_tree, lat_tree, origin_lon_tree, origin_lat_tree)
+parcelPoints = convert_geo_to_local_points(lon_tree, lat_tree, origin_lon_tree, origin_lat_tree)[0]

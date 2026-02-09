@@ -35,6 +35,12 @@ alwaysApply: true
   - Guid → geometry; Polyline → `PolylineCurve`; Line → `LineCurve`.
   - Points/vectors: accept tuple/list or X/Y/Z objects; sanitize vector -0 to 0.
 
+- GH Input List Wrapping (critical):
+  - Grasshopper may wrap a single input value (e.g., a string) into a single-element Python `list`.
+  - When a function expects `str` but receives `list`, always unwrap first: `if isinstance(raw, list) and len(raw) > 0: raw = raw[0]`.
+  - When a function returns a tuple (e.g., `(tree1, tree2, tree3)`), do NOT assign the whole tuple to a single GH output variable; unpack or index explicitly (e.g., `output = func(...)[0]`).
+  - Always check `type(input).__name__` when debugging silent failures — GH coercion may produce unexpected wrapper types.
+
 - Classification Patterns:
   - Use `curve.Contains(point, plane, tol)` for planar regions; treat Coincident as inside when appropriate.
   - Multi-region union semantics (ANY-hit) when requested; final midpoint recheck.
