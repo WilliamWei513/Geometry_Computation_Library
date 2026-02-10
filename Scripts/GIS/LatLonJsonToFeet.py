@@ -115,8 +115,10 @@ def parse_multipolygon_json(multipolygon_json_string):
     
     try:
         raw = multipolygon_json_string
-        if isinstance(raw, list) and len(raw) > 0:
+        if isinstance(raw, list) and len(raw) == 1 and isinstance(raw[0], (str, System.String)):
             raw = raw[0]
+        if isinstance(raw, System.String):
+            raw = str(raw)
         parsed = json.loads(raw) if isinstance(raw, str) else raw
         
         if not isinstance(parsed, list) or len(parsed) == 0:
@@ -171,6 +173,7 @@ origin_lon_tree = DataTree[System.Double]()
 origin_lat_tree = DataTree[System.Double]()
 origin_lonlat_tree = DataTree[System.Double]()
 
+has_origin_input = False
 if optional_origin_lonlat is not None:
     try:
         paths = list(optional_origin_lonlat.Paths)
@@ -181,6 +184,7 @@ if optional_origin_lonlat is not None:
                 val1 = branch[1]
                 origin_lon_val = float(val0) if not isinstance(val0, System.Double) else float(val0.Value)
                 origin_lat_val = float(val1) if not isinstance(val1, System.Double) else float(val1.Value)
+                has_origin_input = True
                 for path in lon_tree.Paths:
                     try:
                         origin_lon_tree.EnsurePath(path)
@@ -194,7 +198,8 @@ if optional_origin_lonlat is not None:
                         pass
     except:
         pass
-else:
+
+if not has_origin_input:
     for path in lon_tree.Paths:
         try:
             lon_branch = list(lon_tree.Branch(path))
